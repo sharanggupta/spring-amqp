@@ -33,6 +33,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.annotation.RabbitListenerAnnotationBeanPostProcessor;
 import org.springframework.amqp.rabbit.listener.ListenerContainerConsumerFailedEvent;
 import org.springframework.amqp.rabbit.listener.RabbitListenerEndpointRegistry;
+import org.springframework.amqp.rabbit.listener.api.RabbitListenerErrorHandler;
 import org.springframework.amqp.rabbitmq.client.AmqpConnectionFactory;
 import org.springframework.amqp.rabbitmq.client.RabbitAmqpTestBase;
 import org.springframework.amqp.rabbitmq.client.config.RabbitAmqpListenerContainerFactory;
@@ -54,6 +55,7 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * @author Artem Bilan
+ * @author Sharang Gupta
  *
  * @since 4.0
  */
@@ -156,6 +158,12 @@ class RabbitAmqpListenerTests extends RabbitAmqpTestBase {
 	void verifyBasicRequestReply() {
 		CompletableFuture<String> replyFuture = this.template.convertSendAndReceive("requestQueue", "test data");
 		assertThat(replyFuture).succeedsWithin(20, TimeUnit.SECONDS).isEqualTo("TEST DATA");
+	}
+
+	@Test
+	void listenerErrorHandlerRepliesToFailedRequest() {
+		CompletableFuture<String> replyFuture = this.template.convertSendAndReceive("failingRequestQueue", "input");
+		assertThat(replyFuture).succeedsWithin(20, TimeUnit.SECONDS).isEqualTo("request failed");
 	}
 
 	@Test
@@ -322,6 +330,17 @@ class RabbitAmqpListenerTests extends RabbitAmqpTestBase {
 		@RabbitListener(queuesToDeclare = @org.springframework.amqp.rabbit.annotation.Queue("requestQueue"))
 		String toUpperCaseRpc(String data) {
 			return data.toUpperCase();
+		}
+
+		@RabbitListener(queuesToDeclare = @org.springframework.amqp.rabbit.annotation.Queue("failingRequestQueue"),
+				errorHandler = "replyingErrorHandler")
+		String failingRpc(String data) {
+			throw new IllegalStateException("The request cannot be processed: " + data);
+		}
+
+		@Bean
+		RabbitListenerErrorHandler replyingErrorHandler() {
+			return (amqpMessage, channel, message, exception) -> "request failed";
 		}
 
 		@RabbitListener(queuesToDeclare = @org.springframework.amqp.rabbit.annotation.Queue("requestQueue2"))
